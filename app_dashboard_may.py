@@ -796,14 +796,14 @@ st.plotly_chart(
 st.markdown("---")
 st.subheader("⏱️ CÔNG CỤ TÍNH NĂNG SUẤT & ĐỀ XUẤT MÁY THEO NGÀY GIAO HÀNG")
 st.caption(
-    "Tính toán chính xác theo sản lượng mục tiêu PO, năng suất ca (3 ca/ngày)"
-    " và đối chiếu GAP chênh lệch."
+    "Tính toán chính xác theo sản lượng mục tiêu PO (sau khi trừ tồn kho), năng"
+    " suất ca (3 ca/ngày) và đối chiếu GAP chênh lệch."
 )
 
 p_col1, p_col2 = st.columns([1.1, 1.1])
 
 with p_col1:
-  st.markdown("#### 1️⃣ Chọn Đơn Hàng PO & Nhập Năng Suất Theo Loại Máy")
+  st.markdown("#### 1️⃣ Chọn Đơn Hàng PO, Tồn Kho & Nhập Năng Suất Máy")
 
   calc_kh_options = ["Tất cả Khách hàng"] + sorted(
       [c for c in df_all["Khách hàng"].unique() if c != "Chưa phân bổ"]
@@ -845,6 +845,23 @@ with p_col1:
       "📏 Tổng số lượng sản phẩm PO (mét):",
       value=po_qty_default,
       step=1000,
+  )
+
+  # SỐ LƯỢNG TỒN KHO TỰ NHẬP
+  inventory_qty = st.number_input(
+      "📦 Số lượng Tồn kho hiện có (mét):",
+      value=0,
+      min_value=0,
+      step=1000,
+      key=f"input_inventory_{selected_po}",
+  )
+
+  # TÍNH SẢN LƯỢNG CÒN LẠI CẦN SẢN XUẤT
+  remaining_qty = max(0, po_qty - inventory_qty)
+
+  st.info(
+      f"📊 **Sản lượng còn lại cần sản xuất:** `{remaining_qty:,} m`  \n*(Tổng PO:"
+      f" {po_qty:,} m - Tồn kho: {inventory_qty:,} m)*"
   )
 
   running_po_df = df_po_machines[
@@ -900,11 +917,11 @@ with p_col2:
 
   if total_daily_calculated > 0:
     total_hours_needed = (
-        (po_qty / total_daily_calculated) * 24.0
+        (remaining_qty / total_daily_calculated) * 24.0
         if total_daily_calculated > 0
         else 0
     )
-    workdays_needed = math.ceil(po_qty / total_daily_calculated)
+    workdays_needed = math.ceil(remaining_qty / total_daily_calculated)
 
     if total_hours_needed <= 24.0:
       estimated_finish_date = today
@@ -919,8 +936,8 @@ with p_col2:
 
     m1, m2, m3 = st.columns(3)
     m1.metric(
-        "Mục tiêu PO cần dệt",
-        f"{int(po_qty):,} m",
+        "Sản lượng cần dệt",
+        f"{int(remaining_qty):,} m",
         f"Thời gian: {time_txt}",
     )
     m2.metric(
@@ -930,14 +947,18 @@ with p_col2:
     )
     m3.metric("Ngày xong dự kiến", estimated_finish_date.strftime("%d/%m/%Y"))
 
-    gap_val = int(total_daily_calculated - po_qty)
+    gap_val = int(total_daily_calculated - remaining_qty)
     st.markdown("---")
     st.markdown("🎯 **ĐỐI TƯỢNG PO & ĐÁNH GIÁ GAP CÔNG SUẤT DỆT:**")
 
-    # SỬA LỖI 1: DÙNG ĐỊNH DẠNG STREAMLIT MARKDOWN NATIVE TỰ NHẬN MÀU CHUẨN ĐẸP
-    if gap_val >= 0:
+    if remaining_qty == 0:
       st.success(
-          f"📊 **Mục tiêu PO:** `{int(po_qty):,} m`  |  ⚡ **Công suất"
+          f"🎉 **ĐÃ ĐỦ TỒN KHO!** Không cần sản xuất thêm cho PO **{selected_po}**.",
+          icon="✅",
+      )
+    elif gap_val >= 0:
+      st.success(
+          f"📊 **Sản lượng cần dệt:** `{int(remaining_qty):,} m`  |  ⚡ **Công suất"
           f" xưởng/ngày:** `{int(total_daily_calculated):,} m`  \n👉 **ĐÁNH GIÁ"
           f" GAP:** :green[**+{gap_val:,} m/ngày (DƯ THỪA NĂNG SUẤT)**]  \n*Đơn"
           f" hàng hoàn tất nhanh chóng trong {time_txt}.*",
@@ -945,7 +966,7 @@ with p_col2:
       )
     else:
       st.warning(
-          f"📊 **Mục tiêu PO:** `{int(po_qty):,} m`  |  ⚡ **Công suất"
+          f"📊 **Sản lượng cần dệt:** `{int(remaining_qty):,} m`  |  ⚡ **Công suất"
           f" xưởng/ngày:** `{int(total_daily_calculated):,} m`  \n👉 **ĐÁNH GIÁ"
           f" GAP:** :red[**{gap_val:,} m/ngày (THIẾU CÔNG SUẤT)**]",
           icon="⚠️",
@@ -953,7 +974,12 @@ with p_col2:
 
     st.markdown("---")
 
-    if estimated_finish_date <= target_delivery_date:
+    if remaining_qty == 0:
+      st.success(
+          f"🟢 **TỒN KHO ĐÁP ỨNG ĐỦ ĐƠN HÀNG!**  \n"
+          f"Số lượng tồn kho (`{inventory_qty:,} m`) đã đủ để giao PO **{selected_po}** mà không cần khởi chạy dệt thêm."
+      )
+    elif estimated_finish_date <= target_delivery_date:
       st.success(
           f"🟢 **ĐÁP ỨNG TIẾN ĐỘ GIAO HÀNG!**  \n"
           f"Đơn hàng **{selected_po}** dự kiến dệt xong vào ngày"
@@ -979,9 +1005,13 @@ with p_col2:
         df_all[df_all["Trạng thái"].apply(normalize_status) == "Đang rảnh"]
     )
 
-    # SỬA LỖI 2: LOẠI BỎ THẺ HTML TRONG THÔNG BÁO ĐỀ XUẤT MÁY
-    if available_workdays > 0:
-      required_daily_output = po_qty / available_workdays
+    if remaining_qty == 0:
+      st.info(
+          f"• **Số máy đang chạy PO hiện tại:** **{running_m_po} máy**  \n"
+          f"• 👉 **ĐỀ XUẤT MÁY:** Tồn kho đã đủ đơn hàng, có thể :green[**chuyển toàn bộ {running_m_po} máy sang chạy PO khác**]."
+      )
+    elif available_workdays > 0:
+      required_daily_output = remaining_qty / available_workdays
       required_total_machines = math.ceil(required_daily_output / avg_m_daily)
       if required_total_machines < 1:
         required_total_machines = 1
